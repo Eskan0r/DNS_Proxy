@@ -17,6 +17,12 @@ SINKHOLE_IPV4 = "0.0.0.0"
 SINKHOLE_IPV6 = "::"
 SINKHOLE_TTL = 60
 
+# --- Threat feed updater (Artin) ---
+FEED_UPDATE_INTERVAL_SEC = 24 * 60 * 60
+FEED_TIMEOUT_SEC = 30.0
+FEED_MAX_BYTES = 64 * 1024 * 1024  # limit each decoded HTTP response body
+FEED_USER_AGENT = "dns-proxy-cs4389/1.0 (educational threat-feed updater)"
+
 # --- Cache (Minkyu) ---
 CACHE_MAX_ENTRIES = 5000
 CACHE_MIN_TTL = 30
