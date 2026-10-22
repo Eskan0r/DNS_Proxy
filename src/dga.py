@@ -11,22 +11,42 @@ Requirements:
 - Return reason string for logger, e.g. "entropy=4.6 len=12".
 """
 import math
+from collections import Counter
+
+from src import config
 
 
 def shannon_entropy(s: str) -> float:
-    """TODO: implement -p*log2(p) over char freq. Test: 'aaaa'->0.0."""
-    raise NotImplementedError
+    """Shannon entropy (bits/char)"""
+    if not s:
+        return 0.0
+    n = len(s)
+    return -sum((c / n) * math.log2(c / n) for c in Counter(s).values())
+
+
+def _scored_label(domain: str) -> str:
+    """Label to score: the one just left of the TLD"""
+    labels = [l for l in domain.strip().lower().rstrip(".").split(".") if l]
+    if not labels:
+        return ""
+    return labels[-2] if len(labels) > 1 else labels[0]
 
 
 class DGADetector:
-    """TODO: implement score()."""
+    """Flags names whose label is both long enough and high-entropy."""
 
-    def __init__(self, threshold: float = 4.0, min_len: int = 12):
-        # TODO: store threshold/min_len
-        raise NotImplementedError
+    def __init__(
+        self,
+        threshold: float = config.ENTROPY_THRESHOLD,
+        min_len: int = config.DGA_MIN_LABEL_LEN,
+    ):
+        self.threshold = threshold
+        self.min_len = min_len
 
     def score(self, domain: str) -> tuple[bool, float, str]:
-        """Returns (is_suspicious, entropy_value, reason_str).
-        TODO: extract first label, compute entropy + len, compare to threshold.
-        """
-        raise NotImplementedError
+        """Returns: (is_suspicious, entropy_value, reason_str)."""
+        label = _scored_label(domain)
+        entropy = shannon_entropy(label)
+        reason = f"entropy={entropy:.2f} len={len(label)}"
+        suspicious = len(label) >= self.min_len and entropy > self.threshold
+        return suspicious, entropy, reason

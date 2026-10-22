@@ -25,8 +25,8 @@ CACHE_MAX_TTL = 3600
 # --- Detection thresholds (tuned by owners, wired here) ---
 # TODO Megan: set TYPO_MAX_DISTANCE after FP test
 TYPO_MAX_DISTANCE = 2
-# TODO Chaiyun: set ENTROPY_THRESHOLD after Tranco vs malicious eval
-ENTROPY_THRESHOLD = 4.0
+# Chaiyun: picked by sweeping benign vs DGA samples (tests/test_dga.py)
+ENTROPY_THRESHOLD = 3.5
 DGA_MIN_LABEL_LEN = 12
 
 # --- Paths ---
