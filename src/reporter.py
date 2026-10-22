@@ -11,11 +11,11 @@ Requirements:
 - Also owns README run instructions.
 """
 # TODO: import sqlite3, matplotlib, argparse, time
-import sqlite3  # lets us read the logger's SQLite database
-import argparse  # lets us read --db and --out from the command line
-import time  # lets us time queries for the latency numbers
-import os  # lets us create the output folder for the charts
-import matplotlib.pyplot as plt  # draws the bar and pie charts
+import sqlite3
+import argparse
+import time
+import os
+import matplotlib.pyplot as plt
 from dnslib import DNSRecord
 
 def run_evaluation(proxy_host: str = "127.0.0.1", proxy_port: int = 5353,
@@ -112,74 +112,74 @@ def run_evaluation(proxy_host: str = "127.0.0.1", proxy_port: int = 5353,
 
 def generate_charts(db_path: str, out_dir: str) -> None:
     """TODO: query logger DB, save blocked_by_category.png + decisions.png."""
-    conn = sqlite3.connect(db_path)                               # open the database
+    conn = sqlite3.connect(db_path)
     rows = conn.execute(
         "SELECT decision, COUNT(*) FROM queries GROUP BY decision"
-    ).fetchall()                                                  # count rows for each decision
-    decisions = dict(rows)                                        # e.g. {'allow': 2, 'block': 8}
+    ).fetchall()
+    decisions = dict(rows) 
 
     rows = conn.execute(
         "SELECT category, COUNT(*) FROM queries WHERE decision = 'block' GROUP BY category"
-    ).fetchall()                                                  # blocked rows only, one group per category
-    conn.close()                                                  # done with the database
+    ).fetchall()                                                  
+    conn.close()                                                  
 
-    categories = {}                                               # category name -> count
-    for category, count in rows:                                  # each row is a (category, count) pair
-        name = category.split(":")[0]                             # keep only the part before the colon
-        categories[name] = categories.get(name, 0) + count        # add this row's count to the running total
+    categories = {}                                               
+    for category, count in rows:                                  
+        name = category.split(":")[0]                             
+        categories[name] = categories.get(name, 0) + count        
 
-    os.makedirs(out_dir, exist_ok=True)                           # make the output folder if needed
+    os.makedirs(out_dir, exist_ok=True)                           
 
-    plt.figure()                                                  # new blank chart
-    plt.pie(decisions.values(), labels=decisions.keys(), autopct="%1.0f%%")  # one slice per decision, with percentages
-    plt.title("Query decisions")                                  # title
-    plt.savefig(os.path.join(out_dir, "decisions.png"), bbox_inches="tight")  # save the picture
-    plt.close()                                                   # finish this chart
+    plt.figure()                                                  
+    plt.pie(decisions.values(), labels=decisions.keys(), autopct="%1.0f%%") 
+    plt.title("Query decisions")                                  
+    plt.savefig(os.path.join(out_dir, "decisions.png"), bbox_inches="tight")  
+    plt.close()                                                   
 
-    plt.figure()                                                  # new blank chart
-    bars = plt.bar(list(categories.keys()), list(categories.values()))  # one bar per category
-    plt.bar_label(bars)                                           # write each bar's count on top of it
-    plt.gca().yaxis.get_major_locator().set_params(integer=True)  # whole numbers only on the y axis
-    plt.title("Blocked queries by category")                      # title
-    plt.ylabel("Blocked queries")                                 # vertical axis label
+    plt.figure()                                                  
+    bars = plt.bar(list(categories.keys()), list(categories.values())) 
+    plt.bar_label(bars)                                          
+    plt.gca().yaxis.get_major_locator().set_params(integer=True)  
+    plt.title("Blocked queries by category")                      
+    plt.ylabel("Blocked queries")                                
     plt.savefig(os.path.join(out_dir, "blocked_by_category.png"), bbox_inches="tight")  # save the picture
-    plt.close()                                                   # finish this chart
+    plt.close()                                                  
 
 
 def generate_eval_charts(results: dict, out_dir: str) -> None:
-    os.makedirs(out_dir, exist_ok=True)                           # make the output folder if needed
+    os.makedirs(out_dir, exist_ok=True)                           
 
-    if results['tp'] + results['fn'] > 0:                         # only draw if some malicious queries were answered
-        plt.figure()                                              # new blank chart
-        plt.pie([results['tp'], results['fn']],                   # malicious blocked, malicious missed
-                labels=["Blocked (TP)", "Missed (FN)"], autopct="%1.0f%%")  # short labels, with percentages
-        plt.title("Malicious domains")                            # title
-        plt.savefig(os.path.join(out_dir, "malicious_results.png"), bbox_inches="tight")  # save the picture
-        plt.close()                                               # finish this chart
+    if results['tp'] + results['fn'] > 0:                         
+        plt.figure()                                              
+        plt.pie([results['tp'], results['fn']],                   
+                labels=["Blocked (TP)", "Missed (FN)"], autopct="%1.0f%%")  
+        plt.title("Malicious domains")                            
+        plt.savefig(os.path.join(out_dir, "malicious_results.png"), bbox_inches="tight")  
+        plt.close()                                               
     else:
-        print("No malicious results to chart")                    # nothing answered, so skip this chart
+        print("No malicious results to chart")                    
 
-    if results['tn'] + results['fp'] > 0:                         # only draw if some benign queries were answered
-        plt.figure()                                              # new blank chart
-        plt.pie([results['tn'], results['fp']],                   # benign allowed, benign wrongly blocked
-                labels=["Allowed (TN)", "Blocked (FP)"], autopct="%1.0f%%")  # short labels, with percentages
-        plt.title("Benign domains")                               # title
-        plt.savefig(os.path.join(out_dir, "benign_results.png"), bbox_inches="tight")  # save the picture
-        plt.close()                                               # finish this chart
+    if results['tn'] + results['fp'] > 0:                         
+        plt.figure()                                              
+        plt.pie([results['tn'], results['fp']],                  
+                labels=["Allowed (TN)", "Blocked (FP)"], autopct="%1.0f%%")  
+        plt.title("Benign domains")                               
+        plt.savefig(os.path.join(out_dir, "benign_results.png"), bbox_inches="tight")  
+        plt.close()                                               
     else:
-        print("No benign results to chart")                       # nothing answered, so skip this chart                                                  # finish this chart
+        print("No benign results to chart")                                                                         
 
 if __name__ == "__main__":
     # TODO: argparse --db --out, call generate_charts + print stats
-    parser = argparse.ArgumentParser()                    # reads options typed after the command
+    parser = argparse.ArgumentParser()                    
     parser.add_argument("--db", default="logs/dns_proxy.db")
     parser.add_argument("--out", default="report/")
     args = parser.parse_args()
 
-    generate_charts(args.db, args.out)                    # charts from the database
+    generate_charts(args.db, args.out)                    
 
-    results = run_evaluation()                            # send the 1000 queries
-    generate_eval_charts(results, args.out)               # benign/malicious pies
+    results = run_evaluation()                            
+    generate_eval_charts(results, args.out)              
 
     print("Block rate:", results['block_rate'])
     print("True positives:", results['tp'])
