@@ -26,7 +26,7 @@ def _fallback_normalize_domain(raw: str) -> str:
     """Lowercase, strip whitespace and leading/trailing dots."""
     return raw.strip().lower().strip(".")
 
-
+# we can remove this try method + the _fallback_normalize_domain once utils.py implements _fallback_normalize_domain
 try:
     _utils.normalize_domain("example.com")
     _utils_normalize = _utils.normalize_domain
