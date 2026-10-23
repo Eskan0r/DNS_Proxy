@@ -4,3 +4,5 @@ logs/*.db
 data/*.txt
 report/
 .venv/
+.vscode/
+

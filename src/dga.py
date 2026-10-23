@@ -1,19 +1,14 @@
 """Layer 3 - DGA / gibberish checker (entropy + length), Chaiyun Suhr
-
-Contract for proxy.py:
-    det = DGADetector(threshold=4.0)
-    bad, entropy, reason = det.score("xkq9zq2m8f.com")
-    # bad=True if entropy > threshold and label long/random -> sinkhole/flag
-
-Requirements:
-- Shannon entropy over the left-most label (strip TLD), plus length check.
-- Pick threshold by evaluating benign (Tranco) vs malicious (DGA samples).
-- Return reason string for logger, e.g. "entropy=4.6 len=12".
 """
 import math
 from collections import Counter
 
+import tldextract
+
 from src import config
+
+# Offline: uses the bundled Public Suffix List snapshot
+_extract = tldextract.TLDExtract(suffix_list_urls=())
 
 
 def shannon_entropy(s: str) -> float:
@@ -25,11 +20,10 @@ def shannon_entropy(s: str) -> float:
 
 
 def _scored_label(domain: str) -> str:
-    """Label to score: the one just left of the TLD"""
-    labels = [l for l in domain.strip().lower().rstrip(".").split(".") if l]
-    if not labels:
-        return ""
-    return labels[-2] if len(labels) > 1 else labels[0]
+    """Registered label, using the Public Suffix List
+    'www.x9q.com' -> 'x9q', 'evil.co.uk' -> 'evil'
+    """
+    return _extract(domain.strip().lower().rstrip(".")).domain
 
 
 class DGADetector:
@@ -46,6 +40,8 @@ class DGADetector:
     def score(self, domain: str) -> tuple[bool, float, str]:
         """Returns: (is_suspicious, entropy_value, reason_str)."""
         label = _scored_label(domain)
+        if label.startswith("xn--"):  # punycode
+            return False, 0.0, "punycode label, skipped"
         entropy = shannon_entropy(label)
         reason = f"entropy={entropy:.2f} len={len(label)}"
         suspicious = len(label) >= self.min_len and entropy > self.threshold
