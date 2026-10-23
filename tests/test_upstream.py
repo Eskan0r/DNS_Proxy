@@ -86,3 +86,31 @@ def test_valid_checks_id_qr_and_rcode():
     assert not UpstreamResolver._valid(servfail.pack(), query)
 
     assert not UpstreamResolver._valid(b"garbage", query)
+
+
+def test_qtype_attribute_name_rejected():
+    with UpstreamResolver(doh_urls=[], fallback=None) as up:
+        with pytest.raises(UpstreamError, match="Unsupported qtype"):
+            up.resolve("example.com", "get")
+
+
+def test_measure_direct_without_fallback():
+    with UpstreamResolver(doh_urls=[], fallback=None) as up:
+        with pytest.raises(UpstreamError, match="No UDP fallback"):
+            up.measure_direct("example.com")
+
+
+@needs_net
+def test_hung_doh_does_not_starve_next():
+    # Listener that never accepts: the TLS handshake hangs until the per-try timeout
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen()
+    hung = f"https://127.0.0.1:{srv.getsockname()[1]}/dns-query"
+    try:
+        with UpstreamResolver(doh_urls=[hung, "https://cloudflare-dns.com/dns-query"],
+                              timeout=2, fallback=None) as up:
+            answers, _, _, _ = up.resolve("example.com")
+        assert answers
+    finally:
+        srv.close()

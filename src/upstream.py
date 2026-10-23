@@ -32,7 +32,9 @@ class UpstreamResolver:
     def __init__(self, doh_urls: list[str] | None = None,
                  timeout: float = config.UPSTREAM_TIMEOUT_SEC,
                  retries: int = config.UPSTREAM_RETRIES,
-                 fallback: tuple[str, int] = config.UPSTREAM_FALLBACK_UDP):
+                 fallback: tuple[str, int] | None = config.UPSTREAM_FALLBACK_UDP):
+        if timeout <= 0:
+            raise ValueError("timeout must be > 0")
         self.doh_urls = config.UPSTREAM_DOH_URLS if doh_urls is None else doh_urls
         self.timeout = timeout
         self.retries = max(1, retries)
@@ -46,7 +48,7 @@ class UpstreamResolver:
         """Try each DoH URL, then UDP fallback. Return (ips, ttl, latency_ms, rcode)."""
         # Check before any network call; dnslib raises DNSError (not AttributeError) on unknown names
         try:
-            want = getattr(QTYPE, qtype)
+            want = QTYPE.reverse[qtype]  # getattr(QTYPE, "get") returns a method, not a code
         except Exception:
             raise UpstreamError(f"Unsupported qtype {qtype}") from None
 
@@ -67,6 +69,7 @@ class UpstreamResolver:
         """send raw DNS wire bytes upstream, return raw DNS wire bytes reply, or raise UpstreamError."""
         query = bytes(query)  # dnslib .pack() gives bytearray; httpx would stream it as ints
         deadline = time.perf_counter() + self.timeout
+        per_try = self.timeout / max(1, len(self.doh_urls))  # one hung URL can't starve the next
 
         errors = []
 
@@ -78,7 +81,7 @@ class UpstreamResolver:
                     r = self._client.post(url, content=query, headers={
                         "Content-Type": "application/dns-message",
                         "Accept": "application/dns-message",},
-                        timeout=max(0.1, deadline - time.perf_counter()))
+                        timeout=max(0.1, min(per_try, deadline - time.perf_counter())))
 
                     if r.status_code == 200 and self._valid(r.content, query):
                         return r.content
@@ -98,6 +101,15 @@ class UpstreamResolver:
                 errors.append(f"UDP fallback {self.fallback[0]} failed: {e}")
 
         raise UpstreamError("; ".join(errors) or "no upstreams configured")
+
+    def close(self):
+        self._client.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
 
     def _udp(self, query: bytes) -> bytes:
         """One plain UDP query to the fallback server; used by forward() and measure_direct()."""
@@ -130,6 +142,8 @@ class UpstreamResolver:
 
     def measure_direct(self, domain: str, qtype: str = "A") -> float:
         """Time one plain UDP query to fallback resolver, return latency_ms. For eval only."""
+        if not self.fallback:
+            raise UpstreamError("No UDP fallback configured for measure_direct")
         query = DNSRecord.question(domain, qtype).pack()
         start = time.perf_counter()
         try:
@@ -150,9 +164,11 @@ class UpstreamResolver:
     def _valid(data: bytes, query: bytes) -> bool:
         # A response (QR=1) with the same transaction ID, and upstream didn't itself fail
         # (SERVFAIL/REFUSED -> try next)
+        if len(data) < 12 or data[:2] != query[:2]:  # cheap header checks before a full parse
+            return False
         try:
             reply = DNSRecord.parse(data)
         except Exception:
             return False
-        return (data[:2] == query[:2] and reply.header.qr == 1
+        return (reply.header.qr == 1
                 and reply.header.rcode in (RCODE.NOERROR, RCODE.NXDOMAIN))
