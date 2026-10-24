@@ -44,3 +44,14 @@ We will evaluate based on benign (Tranco top list) vs. malicious samples, measur
 | **Vinh Nguyen** | Logger that saves every request, decision, and reason to SQLite (you can do MySQL or Postgres or whatever u want, but I recommend SQLite), plus design schema and provide query functions like get_top_blocked() for report generator. |
 | **Kareem Saleh** | Report generator with blocked/allowed charts plus README and run instructions, run final evaluation (500 benign + 500 bad) to report block rate, FP/FN, and avg latency. |
 | **Ronak Chavva** | Implement core DNS proxy engine (UDP listener, DNS wire format parsing, threaded request handling, TTL-aware cache lookup, upstream DoH forwarding, and sinkhole enforcement), plus integration for everyone else. |
+
+
+## Requirements
+OS, Windows, macOS, Linux
+Language, Python 3
+Install, pip install -r requirements.txt
+Run, python main.py --port 5353
+Prod, python main.py --port 53, needs admin
+Test, python -m pytest tests
+Login credentials, none needed
+Incomplete features, list what is still stubbed
