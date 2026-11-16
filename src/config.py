@@ -17,16 +17,22 @@ SINKHOLE_IPV4 = "0.0.0.0"
 SINKHOLE_IPV6 = "::"
 SINKHOLE_TTL = 60
 
+# --- Threat feed updater (Artin) ---
+FEED_UPDATE_INTERVAL_SEC = 24 * 60 * 60
+FEED_TIMEOUT_SEC = 30.0
+FEED_MAX_BYTES = 64 * 1024 * 1024  # limit each decoded HTTP response body
+FEED_USER_AGENT = "dns-proxy-cs4389/1.0 (educational threat-feed updater)"
+
 # --- Cache (Minkyu) ---
 CACHE_MAX_ENTRIES = 5000
 CACHE_MIN_TTL = 30
 CACHE_MAX_TTL = 3600
 
 # --- Detection thresholds (tuned by owners, wired here) ---
-# TODO Megan: set TYPO_MAX_DISTANCE after FP test
-TYPO_MAX_DISTANCE = 2
-# TODO Chaiyun: set ENTROPY_THRESHOLD after Tranco vs malicious eval
-ENTROPY_THRESHOLD = 4.0
+# Conservative initial value; representative holdout evaluation remains pending.
+TYPO_MAX_DISTANCE = 1
+# Preserve the DGA branch's threshold. Its real-data samples are still missing.
+ENTROPY_THRESHOLD = 3.5
 DGA_MIN_LABEL_LEN = 12
 
 # --- Paths ---

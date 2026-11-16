@@ -53,53 +53,105 @@ Install, pip install -r requirements.txt
 Run, python main.py --port 5353
 Prod, python main.py --port 53, needs admin
 Test, python -m pytest tests
-Login credentials, none needed
-Incomplete features, see implementation status below
+Login credentials, DNS service needs no login; threat feeds may require API keys
+Incomplete features, see integrated implementation status below
 
-## Core proxy implementation status
+## Integrated implementation status
 
-The core UDP engine, command-line startup, and shared domain helpers are
-implemented on `feat/proxy`. The default server requires the separate component
-branches to be integrated first. This branch alone deliberately exits with a
-component initialization error because main's cache and detection modules are
-still stubs. It does not silently disable missing security layers.
+`feat/proxy` contains the core engine and the production modules from all eight
+component branches. The files were imported into this branch; the source
+branches were not changed. IDE files and scratch scripts were excluded.
 
-After integration, run `python main.py --ip 127.0.0.1 --port 5353` and test with
-`dig @127.0.0.1 -p 5353 example.com A`. Use `--ip 0.0.0.0` to bind IPv4 LAN
-interfaces. Ctrl+C drains pending requests and closes owned resources.
+| Component | Source branch | Source commit |
+|---|---|---|
+| Cache | `minkyu-cache` | `4f9c061` |
+| Blocklist | `feat/domain-blocklist-checker` | `1377448` |
+| Sinkhole, feeds, allowlist | `artin-block-responder` | `bf2c992` |
+| DGA | `feature/dga-detector` | `4cd5ec2` |
+| SQLite logger | `VinhNguyen-SQLite-Logger` | `7c5cc67` |
+| Upstream | `toan-upstream-asker` | `22b7b84` |
+| Reporter and evaluation samples | `kareem-reporter-eval` | `9b5a6ac` |
+| Typosquat algorithm and protected list | `typsquat` | `cd108c3` |
 
-Integration contracts:
+Integration fixes include a reusable typosquat interface, package-relative
+imports, registrable-label comparisons, legitimate-name exclusions, and loading
+`data/top200.txt` independently of the working directory. The original protected
+list is preserved. Only names represented in that list receive lookalike
+protection. Typosquat distance now defaults to 1. On the committed 500-domain
+benign sample this flags 1 name, compared with 10 at distance 2. This sample was
+used to choose the threshold, so these are not independent holdout results.
 
-- Use the component branches' `DNSCache`, `BlocklistChecker`, `Allowlist`,
-  `DGADetector`, `UpstreamResolver`, and `QueryLogger` implementations.
-- Typosquatting must support `TyposquatChecker()`,
-  `load_top_file(path) -> count`, and
-  `is_lookalike(domain) -> (blocked, target, distance)`. Megan's current branch
-  still needs the interface, import, and lookup fixes described in the audit.
-- Provide `data/top200.txt` for the default typosquat loader. Load an optional
-  `data/blocklist.txt` at startup; `Allowlist` owns `data/allowlist.txt` loading.
-  Keep the feed configuration additions, DGA threshold, and `tldextract`
-  dependency when combining branches.
-- Upstream requests use `forward(wire_bytes) -> wire_bytes`. This preserves
-  CNAMEs, negative answers, response codes, and non-address records.
-- Logging uses a dedicated thread so Vinh's current SQLite connection is
-  created, used, and closed on the same thread.
+The logger exposes recent-query and cleanup helpers. Its SQLite connection and
+all writes stay on one dedicated thread. The cache rejects TTLs below its
+configured floor rather than extending their original lifetime.
 
+### Run
+
+```sh
+python -m pip install -r requirements.txt
+python main.py --ip 127.0.0.1 --port 5353
+```
+
+In another terminal:
+
+```sh
+dig @127.0.0.1 -p 5353 example.com A
+dig @127.0.0.1 -p 5353 example.com AAAA
+```
+
+Use `--ip 0.0.0.0` to bind IPv4 LAN interfaces. Ctrl+C drains pending requests
+and closes owned resources. The initial transport supports IPv4 UDP only;
+oversized responses are marked truncated, but client TCP retry is not served.
+
+Optional local files are `data/blocklist.txt` and `data/allowlist.txt`, one domain
+per line. They load at startup. The allowlist matches exact hostnames.
 For IN A/AAAA queries, the order is allowlist override, blocklist, typosquat,
-DGA, cache, upstream. Policy checks run before the cache so newly blocked
-domains cannot be served from old cache entries. Other record types pass
-through upstream without these detection checks, as scoped for the initial
-engine. CNAME targets are preserved but are not separately screened.
+DGA, cache, upstream. Policy checks precede cache lookup. Other query types pass
+through upstream without those detection checks. CNAME targets are preserved
+but are not separately screened. Complex answers and EDNS/DNSSEC requests
+bypass the address cache.
 
-Only simple address answers enter the cache. Cached TTLs count down. Replies
-with short upstream TTLs below `CACHE_MIN_TTL` bypass storage to avoid extending
-their lifetime through the cache component's minimum clamp. EDNS/DNSSEC requests
-and complex answers bypass the address cache. This is an IPv4 UDP listener;
-client TCP transport, feed scheduling/reloading, and final evaluation remain
-outside this change.
+### Threat feeds
 
-Run the core tests with `python -m pytest tests/test_proxy.py -q`. They use
-injected components and include real concurrent loopback UDP requests.
+Configure HTTPS URLs through `URLHAUS_FEED_URL`, `PHISHTANK_FEED_URL`, or
+`MDL_FEED_URL`. Alternatively, configure `URLHAUS_AUTH_KEY` or
+`PHISHTANK_APP_KEY`. No sources are enabled without configuration.
+
+Run `python -m src.feeds` to refresh a due blocklist, or add `--force` to refresh
+regardless of age. Restart the proxy to load the resulting file. The updater
+checks a 24-hour interval when invoked; automatic scheduling and live reload
+are still outstanding.
+
+### Tests and reporting
+
+Run `python -m pytest tests -q -rs`. Tests cover the real components together,
+concurrent loopback UDP, SQLite logging, cache expiry, sinkholes, and evaluation
+edge cases. Network-dependent tests can skip when their connectivity check
+fails. DGA real-data tests skip because `data/tranco_sample.txt` and
+`data/dga_sample.txt` have not been supplied.
+
+After generating query traffic:
+
+```sh
+python -m src.reporter --db logs/dns_proxy.db --out report/
+```
+
+Explicitly request the 500/500 evaluation against a running proxy with:
+
+```sh
+python -m src.reporter --evaluate --proxy-port 5353 --out report/
+```
+
+The evaluator saves `report/evaluation.json` and charts. It handles empty
+NOERROR and NXDOMAIN replies, checks all answer records for sinkholes, measures
+both sample groups, and reports failures and coverage separately. Undefined
+rates are recorded as null. Chart output works without a desktop GUI.
+
+The committed sample lists are inputs, not completed evaluation results.
+Configure threat feeds before claiming final detection results. Do not load the
+malicious evaluation list as the blocklist to manufacture a successful result.
+Representative DGA datasets, final FP/FN and latency evaluation, feed scheduling,
+and live reload remain outstanding.
 
 ## Promised heuristics still outstanding
 
