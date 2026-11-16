@@ -54,4 +54,72 @@ Run, python main.py --port 5353
 Prod, python main.py --port 53, needs admin
 Test, python -m pytest tests
 Login credentials, none needed
-Incomplete features, list what is still stubbed
+Incomplete features, see implementation status below
+
+## Core proxy implementation status
+
+The core UDP engine, command-line startup, and shared domain helpers are
+implemented on `feat/proxy`. The default server requires the separate component
+branches to be integrated first. This branch alone deliberately exits with a
+component initialization error because main's cache and detection modules are
+still stubs. It does not silently disable missing security layers.
+
+After integration, run `python main.py --ip 127.0.0.1 --port 5353` and test with
+`dig @127.0.0.1 -p 5353 example.com A`. Use `--ip 0.0.0.0` to bind IPv4 LAN
+interfaces. Ctrl+C drains pending requests and closes owned resources.
+
+Integration contracts:
+
+- Use the component branches' `DNSCache`, `BlocklistChecker`, `Allowlist`,
+  `DGADetector`, `UpstreamResolver`, and `QueryLogger` implementations.
+- Typosquatting must support `TyposquatChecker()`,
+  `load_top_file(path) -> count`, and
+  `is_lookalike(domain) -> (blocked, target, distance)`. Megan's current branch
+  still needs the interface, import, and lookup fixes described in the audit.
+- Provide `data/top200.txt` for the default typosquat loader. Load an optional
+  `data/blocklist.txt` at startup; `Allowlist` owns `data/allowlist.txt` loading.
+  Keep the feed configuration additions, DGA threshold, and `tldextract`
+  dependency when combining branches.
+- Upstream requests use `forward(wire_bytes) -> wire_bytes`. This preserves
+  CNAMEs, negative answers, response codes, and non-address records.
+- Logging uses a dedicated thread so Vinh's current SQLite connection is
+  created, used, and closed on the same thread.
+
+For IN A/AAAA queries, the order is allowlist override, blocklist, typosquat,
+DGA, cache, upstream. Policy checks run before the cache so newly blocked
+domains cannot be served from old cache entries. Other record types pass
+through upstream without these detection checks, as scoped for the initial
+engine. CNAME targets are preserved but are not separately screened.
+
+Only simple address answers enter the cache. Cached TTLs count down. Replies
+with short upstream TTLs below `CACHE_MIN_TTL` bypass storage to avoid extending
+their lifetime through the cache component's minimum clamp. EDNS/DNSSEC requests
+and complex answers bypass the address cache. This is an IPv4 UDP listener;
+client TCP transport, feed scheduling/reloading, and final evaluation remain
+outside this change.
+
+Run the core tests with `python -m pytest tests/test_proxy.py -q`. They use
+injected components and include real concurrent loopback UDP requests.
+
+## Promised heuristics still outstanding
+
+**Newly observed domains** means domains first seen recently by a chosen
+observer. A local implementation would persist each domain's `first_seen` time,
+define whether it tracks hostnames or registrable domains, and compare age
+against a configured window. Newly observed locally is different from newly
+registered: an established domain can be new to this network. Registration age
+requires a separate data source. A new installation also needs a learning
+period, or almost every domain starts out new. See Cisco's
+[newly seen domain definition](https://www.cisco.com/c/en/us/support/docs/security/umbrella/224735-enable-newly-seen-domains-security.html).
+
+**Short TTL detection** would inspect original upstream answer TTLs and record
+unusually short lifetimes as a risk signal. It must inspect upstream TTLs rather
+than the remaining TTL of a cached answer. TTL describes cache lifetime, not
+domain age; zero-TTL records must not be cached. See
+[RFC 1035, section 3.2.1](https://www.rfc-editor.org/rfc/rfc1035.html#section-3.2.1).
+The project still needs a threshold, benign/malicious evaluation, and a decision
+about whether this signal merely flags or contributes to blocking. A short TTL
+alone does not establish that a domain is malicious.
+
+Neither heuristic is implemented by the core engine. The existing TTL-aware
+cache handles expiration; it is not a short-TTL threat detector.
