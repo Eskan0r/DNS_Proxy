@@ -11,11 +11,10 @@ Requirements:
 - Must handle subdomains: check registrable label, not full 'mail.paypa1.com' naively.
 - TODO: FP test on benign Tranco sample, report threshold tradeoff.
 """
-import sys
 
 # TODO: implement levenshtein(a, b) helper (no heavy deps).
 
-import config
+from config import TYPO_MAX_DISTANCE
 
 def levenshteinFullMatrix(str1, str2):
     m = len(str1)
@@ -69,6 +68,7 @@ class TyposquatChecker:
         TODO: compare base domain vs each top domain with early-exit if len diff > threshold.
         """
         distance = levenshteinFullMatrix(self.URL, str)
-        if distance <= config.TYPO_MAX_DISTANCE:
+        if distance <= TYPO_MAX_DISTANCE:
             return True, str, distance
         return False, None, None
+
