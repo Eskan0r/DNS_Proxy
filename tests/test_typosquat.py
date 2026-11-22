@@ -10,6 +10,31 @@ def test_distance():
     assert levenshteinFullMatrix("paypal", "paypal") == 0
 
 
+@pytest.mark.parametrize("candidate,distance", [
+    ("paypal.com", 0),
+    ("paypa1.com", 1),
+    ("paypal1.com", 1),
+    ("paypl.com", 1),
+    ("pypa1.com", 2),
+])
+def test_teammate_edit_distance_cases(candidate, distance):
+    """Preserve Megan's a6d30ea identity/substitution/insertion/deletion cases."""
+    assert levenshteinFullMatrix("paypal.com", candidate) == distance
+
+
+@pytest.mark.parametrize("contents,expected", [
+    ("google.com\npaypal.com\n", (True, "paypal.com", 1)),
+    ("google.com\nyahoo.com\n", (False, None, None)),
+])
+def test_teammate_file_lookup_cases(tmp_path, contents, expected):
+    """Adapt the standalone file-lookup tests to the integrated checker API."""
+    path = tmp_path / "protected.txt"
+    path.write_text(contents)
+    checker = TyposquatChecker()
+    assert checker.load_top_file(str(path)) == 2
+    assert checker.is_lookalike("paypa1.com") == expected
+
+
 @pytest.mark.parametrize("domain", ["paypa1.com", "mail.PAYPA1.com.", "paypa1.co.uk"])
 def test_lookalike_registrable_label(domain):
     checker = TyposquatChecker(["paypal.com"])

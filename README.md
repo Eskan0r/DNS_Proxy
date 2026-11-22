@@ -1,6 +1,6 @@
 # Lightweight DNS Security Proxy
 
-> Inspect outbound domain requests on a local network — identify malicious traffic and intercept threats before connections are established.
+> Inspect outbound domain requests on a local network, identify malicious traffic and intercept threats before connections are established.
 
 ## Overview
 
@@ -62,6 +62,12 @@ Incomplete features, see integrated implementation status below
 component branches. The files were imported into this branch; the source
 branches were not changed. IDE files and scratch scripts were excluded.
 
+All 10 remote branches were fetched and checked on November 21, 2026, including
+`main` and `feat/proxy`. Megan's new typosquat tests from `a6d30ea` were adapted
+to the integrated checker API in `tests/test_typosquat.py`. The other seven
+component tips are unchanged. Production behavior is integrated; source files
+are not always byte-for-byte copies because compatibility fixes are preserved.
+
 | Component | Source branch | Source commit |
 |---|---|---|
 | Cache | `minkyu-cache` | `4f9c061` |
@@ -71,7 +77,7 @@ branches were not changed. IDE files and scratch scripts were excluded.
 | SQLite logger | `VinhNguyen-SQLite-Logger` | `7c5cc67` |
 | Upstream | `toan-upstream-asker` | `22b7b84` |
 | Reporter and evaluation samples | `kareem-reporter-eval` | `9b5a6ac` |
-| Typosquat algorithm and protected list | `typsquat` | `cd108c3` |
+| Typosquat algorithm, protected list, and adapted tests | `typsquat` | `a6d30ea` |
 
 Integration fixes include a reusable typosquat interface, package-relative
 imports, registrable-label comparisons, legitimate-name exclusions, and loading
@@ -84,6 +90,14 @@ used to choose the threshold, so these are not independent holdout results.
 The logger exposes recent-query and cleanup helpers. Its SQLite connection and
 all writes stay on one dedicated thread. The cache rejects TTLs below its
 configured floor rather than extending their original lifetime.
+
+Ronak's assigned engine and integration work is implemented: UDP listening,
+wire parsing and response validation, bounded threaded handling, TTL-aware cache
+access, upstream DoH with UDP fallback, sinkhole enforcement, and all eight
+component interfaces. The running engine also schedules configured feeds,
+reloads policy snapshots, and records domain/TTL observations. Upstream
+statistics include raw forwarding, and fallback UDP sockets accept packets
+only from their configured peer.
 
 ### Run
 
@@ -104,7 +118,11 @@ and closes owned resources. The initial transport supports IPv4 UDP only;
 oversized responses are marked truncated, but client TCP retry is not served.
 
 Optional local files are `data/blocklist.txt` and `data/allowlist.txt`, one domain
-per line. They load at startup. The allowlist matches exact hostnames.
+per line. They load at startup and are checked for changes every 60 seconds.
+The allowlist matches exact hostnames. Reloads replace the active snapshot,
+so removals take effect too. Invalid/unreadable files retain the previous
+snapshot; deleting a file also retains it. Publish an empty file to clear it.
+Injected policy components remain owned by the caller and are not reloaded.
 For IN A/AAAA queries, the order is allowlist override, blocklist, typosquat,
 DGA, cache, upstream. Policy checks precede cache lookup. Other query types pass
 through upstream without those detection checks. CNAME targets are preserved
@@ -117,17 +135,26 @@ Configure HTTPS URLs through `URLHAUS_FEED_URL`, `PHISHTANK_FEED_URL`, or
 `MDL_FEED_URL`. Alternatively, configure `URLHAUS_AUTH_KEY` or
 `PHISHTANK_APP_KEY`. No sources are enabled without configuration.
 
-Run `python -m src.feeds` to refresh a due blocklist, or add `--force` to refresh
-regardless of age. Restart the proxy to load the resulting file. The updater
-checks a 24-hour interval when invoked; automatic scheduling and live reload
-are still outstanding.
+The running proxy checks configured feeds at startup and refreshes them when
+their 24-hour interval expires. Failed downloads retain the published list and
+retry after five minutes. Downloads run on a separate maintenance thread and
+published lists are loaded without restarting. Ctrl+C also joins this worker;
+an in-progress download may need to finish or time out before shutdown completes.
+
+Run `python -m src.feeds` to refresh a due blocklist separately, or add `--force`
+to refresh regardless of age. The running proxy picks up this change on its next
+policy check. Feed publication replaces `data/blocklist.txt` with the union of
+configured feeds, so put exact local overrides in `data/allowlist.txt`. Configure
+feed environment settings before starting the proxy.
 
 ### Tests and reporting
 
 Run `python -m pytest tests -q -rs`. Tests cover the real components together,
 concurrent loopback UDP, SQLite logging, cache expiry, sinkholes, and evaluation
-edge cases. Network-dependent tests can skip when their connectivity check
-fails. DGA real-data tests skip because `data/tranco_sample.txt` and
+edge cases. They also exercise background feed publication, live policy
+replacement, persistent first-seen tracking, database migration, upstream
+question matching, and latency accounting. Network-dependent tests can skip
+when their connectivity check fails. DGA real-data tests skip because `data/tranco_sample.txt` and
 `data/dga_sample.txt` have not been supplied.
 
 After generating query traffic:
@@ -150,28 +177,37 @@ rates are recorded as null. Chart output works without a desktop GUI.
 The committed sample lists are inputs, not completed evaluation results.
 Configure threat feeds before claiming final detection results. Do not load the
 malicious evaluation list as the blocklist to manufacture a successful result.
-Representative DGA datasets, final FP/FN and latency evaluation, feed scheduling,
-and live reload remain outstanding.
+Remaining team validation belongs to the component/evaluation owners: Chaiyun's
+representative DGA datasets and holdout evaluation; Megan's independent
+typosquat threshold evaluation; Artin's deployment feed configuration; and
+Kareem's final 500/500 FP/FN and latency report. The engine and evaluator are
+integrated, but these detection-quality results have not been established.
 
-## Promised heuristics still outstanding
+### Domain and TTL observations
 
-**Newly observed domains** means domains first seen recently by a chosen
-observer. A local implementation would persist each domain's `first_seen` time,
-define whether it tracks hostnames or registrable domains, and compare age
-against a configured window. Newly observed locally is different from newly
-registered: an established domain can be new to this network. Registration age
-requires a separate data source. A new installation also needs a learning
-period, or almost every domain starts out new. See Cisco's
-[newly seen domain definition](https://www.cisco.com/c/en/us/support/docs/security/umbrella/224735-enable-newly-seen-domains-security.html).
+These are observation-only signals stored in SQLite, separate from the blocking
+decision and category. They do not change DNS responses or establish maliciousness.
+Defaults are initial operational settings, not thresholds tuned on holdout data.
 
-**Short TTL detection** would inspect original upstream answer TTLs and record
-unusually short lifetimes as a risk signal. It must inspect upstream TTLs rather
-than the remaining TTL of a cached answer. TTL describes cache lifetime, not
-domain age; zero-TTL records must not be cached. See
-[RFC 1035, section 3.2.1](https://www.rfc-editor.org/rfc/rfc1035.html#section-3.2.1).
-The project still needs a threshold, benign/malicious evaluation, and a decision
-about whether this signal merely flags or contributes to blocking. A short TTL
-alone does not establish that a domain is malicious.
+**Newly observed domains:** successful policy decisions for IN A/AAAA requests
+record the normalized full hostname's first observation in `domain_first_seen`.
+The observer is this proxy database, not an external registration service.
+After a persisted 24-hour learning period, hostnames first seen less than 24
+hours ago receive `newly-observed`. Both timestamps survive restarts. Existing
+databases are migrated and backfilled from their previous query history.
+First seen locally does not mean newly registered. Configure the learning period
+and window with `NEW_DOMAIN_LEARNING_SEC` and `NEW_DOMAIN_WINDOW_SEC` in `src/config.py`.
 
-Neither heuristic is implemented by the core engine. The existing TTL-aware
-cache handles expiration; it is not a short-TTL threat detector.
+**Short TTL:** validated, complete upstream replies record the minimum original
+IN A/AAAA answer TTL in `queries.upstream_min_ttl`. Values below
+`SHORT_TTL_THRESHOLD_SEC` (60 seconds, including zero) receive `short-ttl` in
+`queries.risk_signals`, a JSON array. Cached remaining TTLs, sinkhole TTLs,
+truncated replies, and failed responses do not feed this signal. Zero and
+below-floor TTLs remain excluded from the cache.
+
+Inspect the signals with a SQLite client:
+
+```sql
+SELECT ts, domain, decision, risk_signals, upstream_min_ttl
+FROM queries WHERE risk_signals != '[]' ORDER BY rowid DESC;
+```

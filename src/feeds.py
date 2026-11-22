@@ -1,7 +1,7 @@
 """Artin's threat-feed updater, exact allowlist, and DNS sinkhole responder.
 
-Run a due update with ``python -m src.feeds``. This module does not start a
-scheduler, perform blocklist lookups, or wire itself into the proxy.
+Run a due update with ``python -m src.feeds``. The running proxy uses
+src.maintenance to schedule updates and reload policy files.
 """
 
 import argparse
@@ -32,8 +32,7 @@ class FeedUpdateError(RuntimeError):
 def _hostname(raw: str) -> str | None:
     """Validate a feed hostname, including IDNA; never accept URLs or IPs.
 
-    Feed validation is deliberately self-contained: the shared utils helpers
-    are currently stubs and do not provide this stricter validation contract.
+    Feed validation is stricter than the shared DNS-name normalization helper.
     """
     name = raw.strip().removesuffix(".")
     try:

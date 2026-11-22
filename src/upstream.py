@@ -63,11 +63,12 @@ class UpstreamResolver:
             soa = [rr for rr in reply.auth if rr.rtype == QTYPE.SOA]
             ttl = min(soa[0].ttl, soa[0].rdata.times[-1]) if soa else 0
 
-        return answers, ttl, self._record(start, self._latencies), reply.header.rcode
+        return answers, ttl, (time.perf_counter() - start) * 1000, reply.header.rcode
 
     def forward(self, query: bytes) -> bytes:
         """send raw DNS wire bytes upstream, return raw DNS wire bytes reply, or raise UpstreamError."""
         query = bytes(query)  # dnslib .pack() gives bytearray; httpx would stream it as ints
+        start = time.perf_counter()
         deadline = time.perf_counter() + self.timeout
         per_try = self.timeout / max(1, len(self.doh_urls))  # one hung URL can't starve the next
 
@@ -84,6 +85,7 @@ class UpstreamResolver:
                         timeout=max(0.1, min(per_try, deadline - time.perf_counter())))
 
                     if r.status_code == 200 and self._valid(r.content, query):
+                        self._record(start, self._latencies)
                         return r.content
 
                     reason = "invalid reply" if r.status_code == 200 else f"HTTP {r.status_code}"
@@ -95,6 +97,7 @@ class UpstreamResolver:
             try:
                 reply = self._udp(query)
                 if self._valid(reply, query):
+                    self._record(start, self._latencies)
                     return reply
                 errors.append(f"UDP fallback {self.fallback[0]} failed: invalid reply")
             except OSError as e:
@@ -115,12 +118,12 @@ class UpstreamResolver:
         """One plain UDP query to the fallback server; used by forward() and measure_direct()."""
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.settimeout(self.timeout)
-            sock.sendto(query, self.fallback)
-            reply, _ = sock.recvfrom(4096)
-            return reply
+            sock.connect(self.fallback)
+            sock.send(query)
+            return sock.recv(65535)
 
     def stats(self) -> dict:
-        """Latency for the report: upstream (resolve) vs direct UDP (measure_direct), successes only."""
+        """Successful raw forwarding vs direct UDP latency for the report."""
         with self._lock:
             up, direct = sorted(self._latencies), sorted(self._direct)
         out = {"upstream": self._summary(up), "direct": self._summary(direct)}
@@ -168,7 +171,10 @@ class UpstreamResolver:
             return False
         try:
             reply = DNSRecord.parse(data)
+            request = DNSRecord.parse(query)
         except Exception:
             return False
         return (reply.header.qr == 1
+                and reply.header.opcode == request.header.opcode
+                and reply.questions == request.questions
                 and reply.header.rcode in (RCODE.NOERROR, RCODE.NXDOMAIN))

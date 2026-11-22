@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import threading
 import time
+import re
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -105,15 +106,26 @@ class BlocklistChecker:
         with self._lock:
             self._blocked = self._blocked | cleaned
 
-    def load_file(self, path: str | Path) -> int:
+    def load_file(self, path: str | Path, *, strict: bool = False) -> int:
         """Load domains from a text file (one domain per line).
 
         Ignores blank lines and '#' comments. Returns count of unique valid
-        domains loaded from the file.
+        domains loaded from the file. Strict reloads reject malformed entries
+        before changing the snapshot; an empty/comment-only file is valid.
         """
         file_path = Path(path)
-        with file_path.open("r", encoding="utf-8") as fh:
-            cleaned = {d for line in fh if (d := _clean_entry(line))}
+        cleaned = set()
+        with file_path.open("r", encoding="utf-8-sig") as fh:
+            for line in fh:
+                if not line.split('#', 1)[0].strip():
+                    continue
+                domain = _clean_entry(line)
+                if strict and (not domain or len(domain) > 253 or any(
+                        not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label)
+                        for label in domain.split('.'))):
+                    raise ValueError("Invalid blocklist hostname")
+                if domain:
+                    cleaned.add(domain)
         with self._lock:
             self._blocked = self._blocked | cleaned
         return len(cleaned)

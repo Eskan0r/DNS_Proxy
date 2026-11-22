@@ -49,8 +49,8 @@ class _SerialLogger:
 class DNSProxy:
     """A single-use IPv4 UDP server. Injected components are caller-owned.
 
-    Defaults require the component branches and data files to be integrated.
-    Missing implementations fail at startup instead of bypassing security.
+    Defaults initialize the integrated components and local policy files.
+    Initialization failures stop startup instead of bypassing security.
     Port zero is supported for local tests.
     """
 
@@ -66,6 +66,7 @@ class DNSProxy:
         self._socket = None
         self._owned = []
         self._closed = False
+        self._maintenance = None
         try:
             self.cache = self._component(cache, "cache", "DNSCache")
             self.blocklist = self._component(blocklist, "blocklist", "BlocklistChecker")
@@ -80,6 +81,11 @@ class DNSProxy:
             self.logger = logger if logger is not None else _SerialLogger()
             if logger is None:
                 self._owned.append(self.logger)
+            if blocklist is None or allowlist is None:
+                from .maintenance import PolicyMaintenance
+                self._maintenance = PolicyMaintenance(
+                    self, blocklist=blocklist is None, allowlist=allowlist is None)
+                self._owned.append(self._maintenance)
         except Exception as exc:
             self.close()
             raise RuntimeError(
@@ -108,6 +114,8 @@ class DNSProxy:
                 sock.bind((self.ip, self.port))
                 self.port = sock.getsockname()[1]
                 sock.settimeout(0.2)
+                if self._maintenance is not None:
+                    self._maintenance.start()
                 LOG.info("DNS proxy listening on %s:%s", self.ip, self.port)
                 with ThreadPoolExecutor(max_workers=self.max_workers,
                                         thread_name_prefix="dns-query") as pool:
@@ -198,6 +206,7 @@ class DNSProxy:
         request = None
         domain, qtype = "", ""
         decision, category = "error", "malformed"
+        upstream_min_ttl = None
         try:
             try:
                 request = DNSRecord.parse(data)
@@ -259,6 +268,12 @@ class DNSProxy:
                     or reply.questions != request.questions):
                 raise ValueError("Upstream response does not match the query")
             decision = "allow" if reply.header.rcode in (RCODE.NOERROR, RCODE.NXDOMAIN) else "error"
+            if decision == "allow" and not reply.header.tc:
+                address_ttls = [rr.ttl for rr in reply.rr
+                                if rr.rtype in (QTYPE.A, QTYPE.AAAA)
+                                and rr.rclass == CLASS.IN]
+                if address_ttls:
+                    upstream_min_ttl = min(address_ttls)
             if (cacheable and reply.header.rcode == RCODE.NOERROR
                     and not reply.header.tc and not reply.header.ad and reply.rr
                     and not reply.auth and not reply.ar
@@ -275,9 +290,12 @@ class DNSProxy:
             return self._error(data, request)
         finally:
             try:
+                observation = ({"upstream_min_ttl": upstream_min_ttl}
+                               if upstream_min_ttl is not None else {})
                 self.logger.log(client_ip=client[0], domain=domain, qtype=qtype,
                                 decision=decision, category=category,
-                                latency_ms=(time.perf_counter() - start) * 1000)
+                                latency_ms=(time.perf_counter() - start) * 1000,
+                                **observation)
             except Exception:
                 LOG.exception("Could not log DNS query")
 

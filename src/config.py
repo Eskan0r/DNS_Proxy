@@ -19,6 +19,8 @@ SINKHOLE_TTL = 60
 
 # --- Threat feed updater (Artin) ---
 FEED_UPDATE_INTERVAL_SEC = 24 * 60 * 60
+FEED_RETRY_INTERVAL_SEC = 5 * 60
+POLICY_RELOAD_INTERVAL_SEC = 60
 FEED_TIMEOUT_SEC = 30.0
 FEED_MAX_BYTES = 64 * 1024 * 1024  # limit each decoded HTTP response body
 FEED_USER_AGENT = "dns-proxy-cs4389/1.0 (educational threat-feed updater)"
@@ -34,6 +36,11 @@ TYPO_MAX_DISTANCE = 1
 # Preserve the DGA branch's threshold. Its real-data samples are still missing.
 ENTROPY_THRESHOLD = 3.5
 DGA_MIN_LABEL_LEN = 12
+
+# Observation-only signals, not blocking criteria or evaluated thresholds.
+NEW_DOMAIN_WINDOW_SEC = 24 * 60 * 60
+NEW_DOMAIN_LEARNING_SEC = 24 * 60 * 60
+SHORT_TTL_THRESHOLD_SEC = 60
 
 # --- Paths ---
 BASE_DIR = Path(__file__).resolve().parent.parent

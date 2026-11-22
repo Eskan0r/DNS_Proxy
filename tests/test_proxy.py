@@ -139,6 +139,24 @@ def test_edns_bypasses_address_cache(proxy, parts):
     parts["upstream"].forward.assert_called_once_with(query.pack())
 
 
+def test_original_ttl_logged_only_for_complete_upstream_answers(proxy, parts):
+    ask(proxy)
+    assert parts['logger'].log.call_args.kwargs['upstream_min_ttl'] == 120
+    parts['cache'].get.return_value = SimpleNamespace(
+        answers=['192.0.2.1'], remaining_ttl=lambda: 5)
+    ask(proxy)
+    assert 'upstream_min_ttl' not in parts['logger'].log.call_args.kwargs
+    parts['cache'].get.return_value = None
+    def truncated(wire):
+        reply = DNSRecord.parse(wire).reply()
+        reply.header.tc = 1
+        reply.add_answer(RR(reply.q.qname, QTYPE.A, ttl=0, rdata=A('192.0.2.1')))
+        return reply.pack()
+    parts['upstream'].forward.side_effect = truncated
+    ask(proxy)
+    assert 'upstream_min_ttl' not in parts['logger'].log.call_args.kwargs
+
+
 @pytest.mark.parametrize("failure", ["timeout", "wrong-id", "wrong-question", "invalid"])
 def test_upstream_errors_servfail(proxy, parts, failure):
     query = DNSRecord.question("example.com")
