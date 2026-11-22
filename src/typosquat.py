@@ -6,7 +6,7 @@ import tldextract
 from . import config
 from .utils import normalize_domain
 
-_extract = tldextract.TLDExtract(suffix_list_urls=())
+_extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 
 
 def levenshteinFullMatrix(str1: str, str2: str) -> int:

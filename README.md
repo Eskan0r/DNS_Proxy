@@ -99,7 +99,66 @@ reloads policy snapshots, and records domain/TTL observations. Upstream
 statistics include raw forwarding, and fallback UDP sockets accept packets
 only from their configured peer.
 
-### Run
+### Recording a demo with npm
+
+From the `DNS_Proxy` folder, run `npm run setup` once to create/use `.venv` and
+install Python dependencies. Node/npm provide command aliases only; the DNS
+server is still Python and there are no npm package dependencies. Setup uses
+pip when available, uv for an existing pip-free environment, or ensurepip.
+
+If the old proxy is still running on port 5300, stop it with Ctrl+C first.
+In terminal 1:
+
+```bash
+npm start
+```
+
+In terminal 2, use this recording sequence:
+
+```bash
+npm run google
+npm run google       # Repeat to show CACHE HIT for eligible answers
+npm run example
+npm run ipv6
+npm run typosquat
+npm run dga
+npm run blocklist
+sleep 65
+npm run example      # BLOCKED
+npm run allowlist
+sleep 65
+npm run example      # ALLOWED
+npm run nondomain    # NXDOMAIN
+npm run display
+npm run charts
+npm test
+npm run reset
+```
+
+`npm run help` lists the commands. `npm run test` also runs the tests. Test runs
+automatically use a fresh project-local temporary directory and disable the
+shared pytest cache to avoid Windows permission conflicts. The offline domain
+parsers use the bundled suffix list without a disk cache for the same reason.
+
+Query output shows the decision, reason, time, addresses, and TTL. `blocklist`
+adds `example.com` to the demo blocklist and removes its allowlist override;
+`allowlist` restores the exact-hostname override. Both use the real 60-second
+policy reload interval. The commands do not sleep automatically.
+
+This demo uses the production proxy components and real upstream DNS, with
+separate policy files, SQLite history, and charts under `.demo/`. Configured
+production feeds are disabled for this editable demonstration. Your existing
+`data/`, `logs/`, and `report/` files are preserved. The charts command generates
+and opens `.demo/report/decisions.png` and `.demo/report/blocked_by_category.png`;
+use `npm run charts -- --no-open` to only generate them.
+
+`npm run reset` gracefully stops the demo instance and clears its policies,
+in-memory cache, history, and charts, then prepares empty policies for another
+recording. Run `npm start` again afterward. It does not stop a separately
+started `main.py` instance. To choose another demo port, use
+`npm start -- --port 15353`; query commands discover the running demo's port.
+
+### Run the regular service
 
 ```sh
 python -m pip install -r requirements.txt

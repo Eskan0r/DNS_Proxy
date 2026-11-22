@@ -7,3 +7,4 @@ data/*.txt
 !data/malicious500.txt
 report/
 .venv/
+.demo/
