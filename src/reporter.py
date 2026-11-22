@@ -1,12 +1,7 @@
 """Report generator + final eval, Kareem Saleh
 
-HOW TO LINK AND RUN
-  1. start the proxy: python main.py --port 5353
-  2. in a second terminal: python -m src.reporter --evaluate --db logs/dns_proxy.db --out report/
-     (without --evaluate it only charts the database)
-
-Needs data/benign500.txt and data/malicious500.txt for --evaluate.
-Output: PNG charts in report/ (plus evaluation.json when --evaluate is used).
+Makes the charts from the log database and from the evaluation results.
+Run: python -m src.reporter --evaluate --db logs/dns_proxy.db --out report/
 """
 import sqlite3
 import json
