@@ -8,3 +8,7 @@ data/*.txt
 report/
 .venv/
 .demo/
+.vscode/
+.idea/
+.coverage
+.pytest_cache/
