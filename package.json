@@ -1,0 +1,22 @@
+{
+  "name": "dns-proxy-demo",
+  "private": true,
+  "description": "Short commands for recording the Python DNS proxy demo",
+  "scripts": {
+    "setup": "node scripts/demo.mjs setup",
+    "start": "node scripts/demo.mjs start",
+    "google": "node scripts/demo.mjs google",
+    "example": "node scripts/demo.mjs example",
+    "ipv6": "node scripts/demo.mjs ipv6",
+    "typosquat": "node scripts/demo.mjs typosquat",
+    "dga": "node scripts/demo.mjs dga",
+    "blocklist": "node scripts/demo.mjs blocklist",
+    "allowlist": "node scripts/demo.mjs allowlist",
+    "nondomain": "node scripts/demo.mjs nondomain",
+    "display": "node scripts/demo.mjs display",
+    "charts": "node scripts/demo.mjs charts",
+    "test": "node scripts/demo.mjs test",
+    "reset": "node scripts/demo.mjs reset",
+    "help": "node scripts/demo.mjs help"
+  }
+}

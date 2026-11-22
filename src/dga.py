@@ -8,7 +8,7 @@ import tldextract
 from src import config
 
 # Offline: uses the bundled Public Suffix List snapshot
-_extract = tldextract.TLDExtract(suffix_list_urls=())
+_extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 
 
 def shannon_entropy(s: str) -> float:

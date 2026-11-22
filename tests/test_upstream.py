@@ -1,6 +1,8 @@
 """Upstream resolver: DoH resolve, UDP fallback, failure, latency overhead (Toan)."""
 import socket
+import threading
 
+import httpx
 import pytest
 from dnslib import DNSRecord, RCODE
 
@@ -86,6 +88,58 @@ def test_valid_checks_id_qr_and_rcode():
     assert not UpstreamResolver._valid(servfail.pack(), query)
 
     assert not UpstreamResolver._valid(b"garbage", query)
+
+
+@pytest.mark.parametrize('mismatch', ['name', 'qtype', 'qclass', 'opcode'])
+def test_wrong_question_retries_next_doh(mismatch):
+    query = DNSRecord.question('example.com')
+    bad = query.reply()
+    if mismatch == 'name':
+        bad.questions = DNSRecord.question('other.com').questions
+    elif mismatch == 'qtype':
+        bad.questions = DNSRecord.question('example.com', 'AAAA').questions
+    elif mismatch == 'qclass':
+        bad.questions = DNSRecord.question('example.com').questions
+        bad.q.qclass = 3
+    else:
+        bad.header.opcode = 2
+    calls = []
+    def doh(request):
+        calls.append(request.url.host)
+        wire = bad.pack() if len(calls) == 1 else query.reply().pack()
+        return httpx.Response(200, content=bytes(wire))
+    with UpstreamResolver(doh_urls=['https://first.invalid/', 'https://second.invalid/'],
+                          retries=1, fallback=None) as upstream:
+        upstream._client.close()
+        upstream._client = httpx.Client(transport=httpx.MockTransport(doh))
+        assert upstream.forward(query.pack()) == query.reply().pack()
+        assert calls == ['first.invalid', 'second.invalid']
+        assert upstream.stats()['upstream']['count'] == 1
+
+
+def test_udp_fallback_and_forward_latency_on_loopback():
+    query = DNSRecord.question('example.com')
+    failures = []
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server:
+        server.bind(('127.0.0.1', 0))
+        server.settimeout(3)
+        def answer():
+            try:
+                for _ in range(2):
+                    wire, client = server.recvfrom(65535)
+                    server.sendto(DNSRecord.parse(wire).reply().pack(), client)
+            except Exception as exc:
+                failures.append(exc)
+        thread = threading.Thread(target=answer)
+        thread.start()
+        try:
+            with UpstreamResolver(doh_urls=[], fallback=server.getsockname()) as upstream:
+                assert upstream.forward(query.pack()) == query.reply().pack()
+                upstream.resolve('example.com')
+                assert upstream.stats()['upstream']['count'] == 2
+        finally:
+            thread.join(4)
+    assert not thread.is_alive() and not failures
 
 
 def test_qtype_attribute_name_rejected():

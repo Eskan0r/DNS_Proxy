@@ -1,74 +1,75 @@
-"""Layer 2 - Typosquat / lookalike checker, Megan Tran.
+"""Lookalike detection using registrable labels and edit distance (Megan Tran)."""
+from pathlib import Path
 
-Contract for proxy.py:
-    checker = TyposquatChecker(top_domains=["paypal.com", ...])  # top 200 real list
-    hit, target, dist = checker.is_lookalike("paypa1.com")
-    # hit=True, target="paypal.com", dist=1 -> sinkhole/flag
+import tldextract
 
-Requirements:
-- Build data/top200.txt (Tranco/manual top real domains).
-- Implement edit (Levenshtein) distance, tune threshold (config.TYPO_MAX_DISTANCE).
-- Must handle subdomains: check registrable label, not full 'mail.paypa1.com' naively.
-- TODO: FP test on benign Tranco sample, report threshold tradeoff.
-"""
+from . import config
+from .utils import normalize_domain
 
-# TODO: implement levenshtein(a, b) helper (no heavy deps).
+_extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 
-from config import TYPO_MAX_DISTANCE
 
-def levenshteinFullMatrix(str1, str2):
-    m = len(str1)
-    n = len(str2)
+def levenshteinFullMatrix(str1: str, str2: str) -> int:
+    """Levenshtein distance with two rows of working memory."""
+    previous = list(range(len(str2) + 1))
+    for i, first in enumerate(str1, 1):
+        current = [i]
+        for j, second in enumerate(str2, 1):
+            current.append(min(current[-1] + 1, previous[j] + 1,
+                               previous[j - 1] + (first != second)))
+        previous = current
+    return previous[-1]
 
-    # Initialize a matrix to store the edit distances
-    dp = [[0 for _ in range(n + 1)] for _ in range(m + 1)]
 
-    # Initialize the first row and column with values from 0 to m and 0 to n respectively
-    for i in range(m + 1):
-        dp[i][0] = i
-    for j in range(n + 1):
-        dp[0][j] = j
+def _registered(domain: str) -> tuple[str, str]:
+    extracted = _extract(normalize_domain(domain).encode("idna").decode("ascii"))
+    return extracted.top_domain_under_public_suffix, extracted.domain
 
-    # Fill the matrix using dynamic programming to compute edit distances
-    for i in range(1, m + 1):
-        for j in range(1, n + 1):
-            if str1[i - 1] == str2[j - 1]:
-                # Characters match, no operation needed
-                dp[i][j] = dp[i - 1][j - 1]
-            else:
-                # Characters don't match, choose minimum cost among insertion, deletion, or substitution
-                dp[i][j] = 1 + min(dp[i][j - 1], dp[i - 1][j], dp[i - 1][j - 1])
-
-    # Return the edit distance between the strings
-    return dp[m][n]
 
 class TyposquatChecker:
-    """TODO: implement"""
-    URL: str = ""
+    """Compare queries against a reusable set of protected registrable domains.
 
-    def __init__(self, url: str):
-        # TODO: self.top = [normalize...] or load data/top200.txt
-        self.URL = url
-        self.load_top_file("data/top200Domains.txt")
-        #currently the path is hardcoded but can change later
+    Exact protected names and their children are clean. Identical labels on
+    another suffix are not treated as spelling mistakes. Short labels are
+    skipped to reduce accidental matches. This is a heuristic, not ownership
+    verification, and thresholds still need representative evaluation.
+    """
 
-    def load_top_file(self, path: str) -> int | None:
-        """Load top-200 file, return count."""
-        file = open(path, "r")
-        for line in file:
-            temp = self.is_lookalike(line.strip())  # .strip() to remove newline characters
-            if temp[0]:
-                return temp[2]
-                #returns the distance if there was a lookalike
-        file.close()
-        return None
+    def __init__(self, top_domains: list[str] | None = None, *,
+                 max_distance: int = config.TYPO_MAX_DISTANCE,
+                 min_label_len: int = 5):
+        if max_distance < 0 or min_label_len < 1:
+            raise ValueError("Invalid typosquat thresholds")
+        self.max_distance = max_distance
+        self.min_label_len = min_label_len
+        self._load(top_domains or [])
 
-    def is_lookalike(self,str) -> tuple[bool, str | None, int | None]:
-        """Return (True, 'paypal.com', 1) if within threshold, else (False, None, None).
-        TODO: compare base domain vs each top domain with early-exit if len diff > threshold.
-        """
-        distance = levenshteinFullMatrix(self.URL, str)
-        if distance <= TYPO_MAX_DISTANCE:
-            return True, str, distance
-        return False, None, None
+    def _load(self, domains):
+        self.top = sorted({registered for raw in domains if raw
+                           if (registered := _registered(raw)[0])})
+        self._protected = frozenset(self.top)
+        self._targets = {target: _registered(target)[1] for target in self.top}
+        self._labels = frozenset(self._targets.values())
 
+    def load_top_file(self, path: str) -> int:
+        """Replace protected domains from a file and return the unique count."""
+        domains = [line.split("#", 1)[0].strip()
+                   for line in Path(path).read_text(encoding="utf-8-sig").splitlines()]
+        self._load(domains)
+        return len(self.top)
+
+    def is_lookalike(self, domain: str) -> tuple[bool, str | None, int | None]:
+        registered, label = _registered(domain)
+        if (not registered or registered in self._protected or label in self._labels
+                or len(label) < self.min_label_len):
+            return False, None, None
+        best = None
+        for target, target_label in self._targets.items():
+            if len(target_label) < self.min_label_len or abs(len(label) - len(target_label)) > self.max_distance:
+                continue
+            distance = levenshteinFullMatrix(label, target_label)
+            if 0 < distance <= self.max_distance and (best is None or distance < best[0]):
+                best = (distance, target)
+        if best is None:
+            return False, None, None
+        return True, best[1], best[0]

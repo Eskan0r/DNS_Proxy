@@ -2,7 +2,13 @@ __pycache__/
 *.pyc
 logs/*.db
 data/*.txt
+!data/top200.txt
+!data/benign500.txt
+!data/malicious500.txt
 report/
 .venv/
+.demo/
 .vscode/
-
+.idea/
+.coverage
+.pytest_cache/
