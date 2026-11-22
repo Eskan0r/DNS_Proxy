@@ -1,14 +1,7 @@
 """Report generator + final eval, Kareem Saleh
 
-Contract:
-    python -m src.reporter --db logs/dns_proxy.db --out report/
-    Reads Vinh's SQLite, makes blocked/allowed charts, prints:
-      block rate, FP/FN, avg latency (proxy vs direct).
-
-Requirements:
-- Final eval: 500 benign (Tranco) + 500 malicious (feeds) through proxy.
-- Charts: matplotlib bar/pie (blocked by category, allow vs block).
-- Also owns README run instructions.
+Makes the charts from the log database and from the evaluation results.
+Run: python -m src.reporter --evaluate --db logs/dns_proxy.db --out report/
 """
 import sqlite3
 import json
@@ -21,6 +14,20 @@ matplotlib.use("Agg")  # File output also works on machines without a desktop/Tk
 import matplotlib.pyplot as plt
 from dnslib import DNSRecord, QTYPE, RCODE
 from . import config
+
+# same meaning gets the same color in every chart
+GREEN = "#2e9e5b"
+RED = "#d64545"
+ORANGE = "#f28c28"
+BLUE = "#4a7fb5"
+GRAY = "#8c8c8c"
+
+DECISION_COLORS = {"allow": GREEN, "block": RED, "cache": BLUE, "error": GRAY}
+DECISION_NAMES = {"allow": "Allowed", "block": "Blocked", "cache": "Cache", "error": "Error"}
+
+FIG_SIZE = (7, 5)
+DPI = 200
+
 
 def run_evaluation(proxy_host: str = "127.0.0.1", proxy_port: int = 5353,
                    benign_file: str = str(config.DATA_DIR / "benign500.txt"),
@@ -90,67 +97,122 @@ def run_evaluation(proxy_host: str = "127.0.0.1", proxy_port: int = 5353,
                 direct_avg_ms=ratio(sum(direct_latencies), len(direct_latencies)))
 
 
+def draw_pie(values, labels, colors, title, total, path):
+    """Draw one pie chart and save it to path."""
+    # skip slices that are 0 so the labels do not overlap
+    keep_values = []
+    keep_labels = []
+    keep_colors = []
+    for i in range(len(values)):
+        if values[i] > 0:
+            keep_values.append(values[i])
+            keep_labels.append(labels[i] + ": " + str(values[i]))
+            keep_colors.append(colors[i])
+
+    plt.figure(figsize=FIG_SIZE)
+    plt.pie(keep_values, labels=keep_labels, colors=keep_colors,
+            autopct="%1.1f%%", startangle=90,
+            wedgeprops={"edgecolor": "white", "linewidth": 1})
+    plt.title(title + " (n=" + str(total) + ")")
+    plt.savefig(path, dpi=DPI, bbox_inches="tight")
+    plt.close()
+
+
+def draw_empty(title, message, path):
+    """Save a simple chart that only shows a message."""
+    # still write a picture when there is no data, so the png file always exists
+    plt.figure(figsize=FIG_SIZE)
+    plt.text(0.5, 0.5, message, ha="center", va="center", fontsize=14, color=GRAY)
+    plt.axis("off")
+    plt.title(title)
+    plt.savefig(path, dpi=DPI, bbox_inches="tight")
+    plt.close()
+
+
 def generate_charts(db_path: str, out_dir: str) -> None:
     """Save decision and blocked-category charts, including empty databases."""
     conn = sqlite3.connect(db_path)
     rows = conn.execute(
         "SELECT decision, COUNT(*) FROM queries GROUP BY decision"
     ).fetchall()
-    decisions = dict(rows)
+    # decision can be "block" or "block:reason", so only keep the part before the colon
+    decisions = {}
+    for decision, count in rows:
+        name = (decision or "unknown").split(":")[0]
+        decisions[name] = decisions.get(name, 0) + count
 
     rows = conn.execute(
-        "SELECT category, COUNT(*) FROM queries WHERE decision = 'block' GROUP BY category"
+        "SELECT category, COUNT(*) FROM queries WHERE decision LIKE 'block%' GROUP BY category"
     ).fetchall()
     conn.close()
 
+    # category looks like "blocklist:bad.com", keep just the first part
     categories = {}
     for category, count in rows:
-        name = category.split(":")[0]
+        name = (category or "unknown").split(":")[0]
         categories[name] = categories.get(name, 0) + count
 
     os.makedirs(out_dir, exist_ok=True)
 
-    plt.figure()
+    decisions_path = os.path.join(out_dir, "decisions.png")
     if decisions:
-        plt.pie(decisions.values(), labels=decisions.keys(), autopct="%1.0f%%")
+        values = []
+        labels = []
+        colors = []
+        for name in decisions:
+            values.append(decisions[name])
+            labels.append(DECISION_NAMES.get(name, name))
+            colors.append(DECISION_COLORS.get(name, GRAY))
+        draw_pie(values, labels, colors, "DNS Decisions", sum(values), decisions_path)
     else:
-        plt.text(0.5, 0.5, "No queries logged", ha="center")
-    plt.title("Query decisions")
-    plt.savefig(os.path.join(out_dir, "decisions.png"), bbox_inches="tight")
-    plt.close()
+        draw_empty("DNS Decisions", "No queries logged", decisions_path)
 
-    plt.figure()
-    bars = plt.bar(list(categories.keys()), list(categories.values()))
-    plt.bar_label(bars)
-    plt.gca().yaxis.get_major_locator().set_params(integer=True)
-    plt.title("Blocked queries by category")
-    plt.ylabel("Blocked queries")
-    plt.savefig(os.path.join(out_dir, "blocked_by_category.png"), bbox_inches="tight")  # save the picture
-    plt.close()
+    category_path = os.path.join(out_dir, "blocked_by_category.png")
+    if categories:
+        names = list(categories.keys())
+        values = list(categories.values())
+
+        plt.figure(figsize=FIG_SIZE)
+        bars = plt.bar(names, values, color=RED)
+        plt.bar_label(bars)
+        plt.title("Blocked Queries by Category (n=" + str(sum(values)) + ")")
+        plt.xlabel("Category")
+        plt.ylabel("Blocked queries")
+        plt.gca().yaxis.get_major_locator().set_params(integer=True)
+        plt.gca().spines["top"].set_visible(False)
+        plt.gca().spines["right"].set_visible(False)
+        plt.grid(axis="y", color="#dddddd")
+        plt.gca().set_axisbelow(True)
+        if len(names) > 5:
+            plt.xticks(rotation=45, ha="right")
+        plt.savefig(category_path, dpi=DPI, bbox_inches="tight")
+        plt.close()
+    else:
+        draw_empty("Blocked Queries by Category", "No blocked queries", category_path)
 
 
 def generate_eval_charts(results: dict, out_dir: str) -> None:
+    """Save malicious_results.png and benign_results.png from the eval results."""
     os.makedirs(out_dir, exist_ok=True)
 
-    if results['tp'] + results['fn'] > 0:
-        plt.figure()
-        plt.pie([results['tp'], results['fn']],
-                labels=["Blocked (TP)", "Missed (FN)"], autopct="%1.0f%%")
-        plt.title("Malicious domains")
-        plt.savefig(os.path.join(out_dir, "malicious_results.png"), bbox_inches="tight")
-        plt.close()
+    malicious_total = results['tp'] + results['fn']
+    if malicious_total > 0:
+        draw_pie([results['tp'], results['fn']],
+                 ["Blocked (TP)", "Missed (FN)"], [RED, ORANGE],
+                 "Malicious Domains", malicious_total,
+                 os.path.join(out_dir, "malicious_results.png"))
     else:
         print("No malicious results to chart")
 
-    if results['tn'] + results['fp'] > 0:
-        plt.figure()
-        plt.pie([results['tn'], results['fp']],
-                labels=["Allowed (TN)", "Blocked (FP)"], autopct="%1.0f%%")
-        plt.title("Benign domains")
-        plt.savefig(os.path.join(out_dir, "benign_results.png"), bbox_inches="tight")
-        plt.close()
+    benign_total = results['tn'] + results['fp']
+    if benign_total > 0:
+        draw_pie([results['tn'], results['fp']],
+                 ["Allowed (TN)", "Blocked (FP)"], [GREEN, RED],
+                 "Benign Domains", benign_total,
+                 os.path.join(out_dir, "benign_results.png"))
     else:
         print("No benign results to chart")
+
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Generate query charts; optionally run evaluation")
