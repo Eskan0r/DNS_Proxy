@@ -116,6 +116,8 @@ class ThreatFeedUpdater:
         # MDL has no verified current endpoint. Enable only an explicitly set URL.
         if url := os.getenv("MDL_FEED_URL"):
             feeds["mdl"] = url
+        if url := os.getenv("PHISHING_ARMY_FEED_URL"):
+            feeds["phishing-army"] = url
         return feeds
 
     def clean(self, raw_lines: list[str]) -> list[str]:

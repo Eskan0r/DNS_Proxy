@@ -190,9 +190,35 @@ bypass the address cache.
 
 ### Threat feeds
 
-Configure HTTPS URLs through `URLHAUS_FEED_URL`, `PHISHTANK_FEED_URL`, or
-`MDL_FEED_URL`. Alternatively, configure `URLHAUS_AUTH_KEY` or
-`PHISHTANK_APP_KEY`. No sources are enabled without configuration.
+Configure HTTPS URLs through `URLHAUS_FEED_URL`, `PHISHTANK_FEED_URL`,
+`MDL_FEED_URL`, or `PHISHING_ARMY_FEED_URL`. Alternatively, configure
+`URLHAUS_AUTH_KEY` or `PHISHTANK_APP_KEY`. No sources are enabled without
+configuration. Settings must be exported in the process environment; this
+application does not automatically read a `.env` file.
+
+A fresh checkout does not contain a generated `data/blocklist.txt`. If no
+source is configured and no file is supplied, the blocklist checker is empty;
+passing unit tests does not establish that live threat intelligence is loaded.
+Before evaluating, download a list and confirm that the checker can load it.
+
+One explicitly enabled key-free option is the
+[Phishing Army public domains feed](https://www.phishing.army/downloads/), an
+independent community aggregator of phishing reports. This is a different
+source from a direct authenticated URLhaus or PhishTank export. For example:
+
+```sh
+export PHISHING_ARMY_FEED_URL="https://phishing.army/download/phishing-army-domains.txt"
+python -m src.feeds --force
+python -c 'from src.blocklist import BlocklistChecker; b = BlocklistChecker(); n = b.load_file("data/blocklist.txt"); assert n > 0, "Empty blocklist"; print(f"Loaded {n} blocklist domains")'
+python main.py --ip 127.0.0.1 --port 5353
+```
+
+Stop if downloading or the nonempty-list check fails. Keep the same exported
+setting when starting the proxy so the existing maintenance worker can refresh
+the source daily. Record the source, retrieval time, domain count, and file hash
+alongside evaluation results. Feed availability and detection coverage are
+separate: downloading a real list does not guarantee that a particular sample
+set will be blocked. Do not construct the blocklist from the evaluation inputs.
 
 The running proxy checks configured feeds at startup and refreshes them when
 their 24-hour interval expires. Failed downloads retain the published list and

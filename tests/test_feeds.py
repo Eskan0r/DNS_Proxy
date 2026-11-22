@@ -15,7 +15,8 @@ from src.feeds import Allowlist, FeedUpdateError, ThreatFeedUpdater, build_sinkh
 @pytest.fixture(autouse=True)
 def isolate_feed_environment(monkeypatch):
     for name in ("URLHAUS_AUTH_KEY", "PHISHTANK_APP_KEY", "URLHAUS_FEED_URL",
-                 "PHISHTANK_FEED_URL", "MDL_FEED_URL", "DNS_PROXY_FEED_USER_AGENT"):
+                 "PHISHTANK_FEED_URL", "MDL_FEED_URL", "PHISHING_ARMY_FEED_URL",
+                 "DNS_PROXY_FEED_USER_AGENT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -244,6 +245,22 @@ def test_environment_configuration_and_url_override(monkeypatch):
     assert ThreatFeedUpdater().feeds["urlhaus"] == "https://feeds.test/hosts"
     assert ThreatFeedUpdater().feeds["mdl"] == "https://feeds.test/mdl"
     assert ThreatFeedUpdater(feeds={}).feeds == {}
+
+
+def test_public_domain_feed_configuration_downloads_without_api_keys(tmp_path, monkeypatch):
+    url = "https://feeds.test/public-domains.txt"
+    monkeypatch.setenv("PHISHING_ARMY_FEED_URL", url)
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+
+    def handler(request):
+        assert str(request.url) == url
+        return httpx.Response(200, text="# public feed\nBAD.Example.\nbad.example\n")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        updater = ThreatFeedUpdater(client=client)
+        assert updater.feeds == {"phishing-army": url}
+        assert updater.update_daily(force=True) == 1
+    assert (tmp_path / "blocklist.txt").read_text() == "bad.example\n"
 
 
 def test_request_has_descriptive_user_agent_and_timeout(updater_factory, monkeypatch):
