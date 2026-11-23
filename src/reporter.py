@@ -97,23 +97,35 @@ def run_evaluation(proxy_host: str = "127.0.0.1", proxy_port: int = 5353,
                 direct_avg_ms=ratio(sum(direct_latencies), len(direct_latencies)))
 
 
+def show_percent(p):
+    """Return the percent text for a slice, or nothing if the slice is tiny."""
+    # tiny slices get no percent text so they do not overlap
+    if p < 3:
+        return ""
+    return "%.1f%%" % p
+
+
 def draw_pie(values, labels, colors, title, total, path):
     """Draw one pie chart and save it to path."""
     # skip slices that are 0 so the labels do not overlap
     keep_values = []
     keep_labels = []
     keep_colors = []
+    pie_total = sum(values)
     for i in range(len(values)):
         if values[i] > 0:
             keep_values.append(values[i])
-            keep_labels.append(labels[i] + ": " + str(values[i]))
+            percent = round(values[i] / pie_total * 100, 1)
+            keep_labels.append(labels[i] + ": " + str(values[i]) + " (" + str(percent) + "%)")
             keep_colors.append(colors[i])
 
     plt.figure(figsize=FIG_SIZE)
-    plt.pie(keep_values, labels=keep_labels, colors=keep_colors,
-            autopct="%1.1f%%", startangle=90,
+    plt.pie(keep_values, colors=keep_colors,
+            autopct=show_percent, startangle=90,
+            textprops={"color": "white", "fontweight": "bold", "fontsize": 11},
             wedgeprops={"edgecolor": "white", "linewidth": 1})
-    plt.title(title + " (n=" + str(total) + ")")
+    plt.legend(keep_labels, loc="center left", bbox_to_anchor=(1, 0.5), frameon=False)
+    plt.title(title + " (n=" + str(total) + ")", fontweight="bold")
     plt.savefig(path, dpi=DPI, bbox_inches="tight")
     plt.close()
 
