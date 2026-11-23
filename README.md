@@ -47,15 +47,19 @@ We will evaluate based on benign (Tranco top list) vs. malicious samples, measur
 
 
 ## Requirements
-OS, Windows, macOS, Linux
-Language, Python 3
-Install, pip install -r requirements.txt
-Run, python main.py --port 5353
-Prod, python main.py --port 53, needs admin
-Test, python -m pytest tests
-Login credentials, DNS service needs no login; threat feeds may require API keys
-Incomplete features, see integrated implementation status below
 
+| Item | Details |
+| --- | --- |
+| Operating system | Windows, macOS, or Linux |
+| Programming language | Python 3.10 or newer. Tested on Windows with Python 3.11. |
+| Python dependencies | Listed in `requirements.txt` |
+| Optional tools | Node.js and npm for the demo commands. `dig` for manual DNS queries. |
+| Install dependencies | `python -m pip install -r requirements.txt` |
+| Run locally | `python main.py --ip 127.0.0.1 --port 5353` |
+| Use standard DNS port | `python main.py --port 53` with administrator privileges if required by your OS |
+| Run tests | `python -m pytest tests -q -rs` |
+| Testing credentials | No login or API keys required for the local demo. Some optional threat feeds require API keys. |
+| Limitations and incomplete features | See [Run the regular service](#run-the-regular-service) and [Tests and reporting](#tests-and-reporting). |
 ## Integrated implementation status
 
 `feat/proxy` contains the core engine and the production modules from all eight
