@@ -111,10 +111,12 @@ def draw_pie(values, labels, colors, title, total, path):
     keep_values = []
     keep_labels = []
     keep_colors = []
+    pie_total = sum(values)
     for i in range(len(values)):
         if values[i] > 0:
             keep_values.append(values[i])
-            keep_labels.append(labels[i] + ": " + str(values[i]))
+            percent = round(values[i] / pie_total * 100, 1)
+            keep_labels.append(labels[i] + ": " + str(values[i]) + " (" + str(percent) + "%)")
             keep_colors.append(colors[i])
 
     plt.figure(figsize=FIG_SIZE)
